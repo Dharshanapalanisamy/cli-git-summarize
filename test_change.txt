@@ -1,2 +1,0 @@
-# Test file for gcm generate
-This is a test change to verify the tool works.

@@ -1,0 +1,2 @@
+# Test for parser fix v2
+Testing that commit messages are parsed correctly.
