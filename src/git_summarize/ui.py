@@ -349,19 +349,31 @@ class UI:
 
     def show_provider_error(self, provider: str, error: str) -> None:
         """
-        Show error when provider fails.
+        Show error when provider fails with relevant tips.
 
         Args:
             provider: Provider name
             error: Error message
         """
+        tips = [
+            "Verify network connectivity",
+            "Check for typos in your configuration"
+        ]
+        
+        provider_lower = provider.lower()
+        if provider_lower == "ollama":
+            tips.insert(0, "Make sure the Ollama server is running (run [bold]ollama serve[/bold])")
+            tips.insert(1, "Check if the Ollama desktop app is open")
+        else:
+            tips.insert(0, "Check your API key is set correctly in your [bold].env[/bold] file")
+            tips.append(f"Try a different provider using [cyan]--provider ollama[/cyan] or [cyan]--provider gemini[/cyan]")
+
+        tips_text = "\n".join([f"  • {tip}" for tip in tips])
+        
         self.show_error(
             f"{error}\n\n"
             f"[dim]Provider: {provider}[/dim]\n\n"
-            f"[yellow]Tips:[/yellow]\n"
-            f"  • Check your API key is set correctly\n"
-            f"  • Verify network connectivity\n"
-            f"  • Try a different provider: [cyan]--provider openai[/cyan] or [cyan]--provider ollama[/cyan]",
+            f"[yellow]Tips:[/yellow]\n{tips_text}",
             f"{provider} Error",
         )
 
@@ -461,3 +473,116 @@ class UI:
     def clear(self) -> None:
         """Clear the console."""
         self.console.clear()
+
+    def show_onboarding_welcome(self) -> None:
+        """Display a welcome message for first-time setup."""
+        self.console.print()
+        self.console.print(Panel(
+            "[bold green]Welcome to git-summarize! 🤖[/bold green]\n\n"
+            "It looks like this is your first time using the tool.\n"
+            "I'll help you set up an AI provider so you can start generating "
+            "standardized commit messages automatically.",
+            title="[bold]Initial Setup[/bold]",
+            border_style="green",
+        ))
+        self.console.print()
+
+    def prompt_provider_selection(self, providers: list[str]) -> str:
+        """
+        Prompt user to select an AI provider.
+
+        Args:
+            providers: List of available provider names
+
+        Returns:
+            Selected provider name
+        """
+        self.console.print("[bold]Select an AI provider:[/bold]")
+        
+        table = Table(show_header=True, box=None, padding=(0, 1))
+        table.add_column("Option", style="cyan")
+        table.add_column("Provider", style="white")
+        table.add_column("Description", style="dim")
+
+        descriptions = {
+            "gemini": "Google Gemini (Free tier available)",
+            "claude": "Anthropic Claude (High quality)",
+            "openai": "OpenAI GPT-4 (Popular)",
+            "ollama": "Local AI (No API key needed)",
+        }
+
+        for i, provider in enumerate(providers, 1):
+            desc = descriptions.get(provider, "")
+            table.add_row(f"[{i}]", provider.title(), desc)
+
+        self.console.print(table)
+        self.console.print()
+
+        options = [str(i) for i in range(1, len(providers) + 1)]
+        choice = Prompt.ask(
+            "Enter choice",
+            choices=options,
+            default="1",
+            show_choices=False,
+        )
+
+        return providers[int(choice) - 1]
+
+    def prompt_api_key(self, provider: str) -> str:
+        """
+        Prompt user for an API key.
+
+        Args:
+            provider: Provider name
+
+        Returns:
+            Entered API key
+        """
+        self.console.print()
+        self.console.print(f"[bold]Enter your {provider.title()} API key:[/bold]")
+        if provider == "gemini":
+            self.console.print("[dim]Get a free key at: https://aistudio.google.com/app/apikey[/dim]")
+        
+        return Prompt.ask("API Key", password=True)
+
+    def prompt_ollama_model_selection(self, models: list[str]) -> str:
+        """
+        Prompt user to select a model from local Ollama installation.
+
+        Args:
+            models: List of available model names
+
+        Returns:
+            Selected model name
+        """
+        self.console.print("[bold]Select an Ollama model:[/bold]")
+        
+        table = Table(show_header=True, box=None, padding=(0, 1))
+        table.add_column("Option", style="cyan")
+        table.add_column("Model", style="white")
+
+        for i, model in enumerate(models, 1):
+            table.add_row(f"[{i}]", model)
+
+        self.console.print(table)
+        self.console.print()
+
+        options = [str(i) for i in range(1, len(models) + 1)]
+        choice = Prompt.ask(
+            "Enter choice",
+            choices=options,
+            default="1",
+            show_choices=False,
+        )
+
+        return models[int(choice) - 1]
+
+    def show_setup_success(self, provider: str) -> None:
+        """Show success message after setup."""
+        self.console.print()
+        self.show_success(
+            f"Configuration saved! git-summarize is now set up to use [bold cyan]{provider.title()}[/bold cyan].\n"
+            "From now on, just run [bold]gcms[/bold] to automate your Git workflow.",
+            "Setup Complete"
+        )
+        self.console.print()

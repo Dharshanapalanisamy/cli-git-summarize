@@ -32,7 +32,7 @@ from git_summarize.ui import UI, UserAction
 
 # Create Typer app
 app = typer.Typer(
-    name="gcm",
+    name="gcms",
     help="AI-powered Git commit message generator",
     add_completion=False,
 )
@@ -58,8 +58,9 @@ def validate_provider(ctx: typer.Context, provider: str) -> str:
     return provider
 
 
-@app.callback()
+@app.callback(invoke_without_command=True)
 def main_callback(
+    ctx: typer.Context,
     version: Optional[bool] = typer.Option(
         None,
         "--version",
@@ -69,8 +70,35 @@ def main_callback(
         help="Show version and exit",
     ),
 ) -> None:
-    """Main callback for global options."""
-    pass
+    """
+    Main callback for gcm.
+    
+    If no subcommand is provided, runs the smart automated workflow.
+    """
+    if ctx.invoked_subcommand is None:
+        # Load configuration
+        config = get_config()
+        ui = UI(console)
+
+        # Step 1: Check if configured
+        if not config.is_configured():
+            asyncio.run(run_initial_setup(config, ui))
+            return
+
+        # Step 2: Run the automated workflow
+        # (Stage all -> Generate -> Commit -> Push)
+        console.print("[bold cyan]🚀 Starting automated Git workflow...[/bold cyan]")
+        
+        # We want to force stage_all and push for the default workflow
+        config.no_add = False
+        config.push = True
+        
+        asyncio.run(
+            run_generation_flow(
+                config=config,
+                ui=ui,
+            )
+        )
 
 
 @app.command()
@@ -153,6 +181,8 @@ def generate(
         config.apply = apply
     if push:
         config.push = push
+    if no_add:
+        config.no_add = no_add
 
     # Initialize UI
     ui = UI(console)
@@ -292,17 +322,40 @@ async def run_generation_flow(
         Exit code (0 for success)
     """
     try:
+        # Step 1: Get AI provider and check availability first
+        # This prevents unnecessary staging if the AI service is down
+        provider_name = config.provider
+        api_key = config.get_api_key(provider_name)
+        model = config.get_model(provider_name)
+
+        provider = create_provider(provider_name, api_key, model, config)
+
+        # Validate configuration (API keys, etc.)
+        is_valid, error = provider.validate()
+        if not is_valid:
+            ui.show_error(error, f"{provider.name} Error")
+            return 1
+
+        # Check if the provider is actually reachable
+        with ui.show_spinner(f"Connecting to {provider.name}..."):
+            if not await provider.check_availability():
+                ui.show_provider_error(
+                    provider_name, 
+                    f"Could not connect to {provider.name}. The service might be down or unreachable."
+                )
+                return 1
+
         # Initialize Git operations
         git = GitOps(repo_path)
 
-        # Step 1: Stage changes if not skipped
+        # Step 2: Stage changes if not skipped
         if not config.no_add:
             with ui.show_spinner("Staging changes..."):
                 if not git.stage_all():
                     ui.show_error("Failed to stage changes.", "Git Error")
                     return 1
 
-        # Step 2: Read Git context
+        # Step 3: Read Git context
         with ui.show_spinner("Reading Git repository..."):
             try:
                 reader = GitReader(repo_path)
@@ -324,30 +377,19 @@ async def run_generation_flow(
             deletions=context.deletions,
         )
 
-        # Step 3: Build prompt
+        # Step 4: Build prompt
         prompt_builder = PromptBuilder(
             num_suggestions=config.num_suggestions,
         )
         prompt = prompt_builder.build(context)
 
-        # Step 4: Get AI provider
-        provider_name = config.provider
-        api_key = config.get_api_key(provider_name)
-        model = config.get_model(provider_name)
-
-        provider = create_provider(provider_name, api_key, model, config)
-
-        # Validate provider
-        is_valid, error = provider.validate()
-        if not is_valid:
-            ui.show_error(error, f"{provider.name} Error")
-            return 1
+        # Step 5: Generate suggestions
 
         # Step 5: Generate suggestions
         try:
             with ui.show_spinner(f"Generating commit messages with {provider.name}..."):
                 response = await provider.generate(
-                    generation_request=type(
+                    type(
                         "GenRequest",
                         (),
                         {
@@ -529,6 +571,52 @@ async def handle_user_interaction(
 
     ui.show_error("Maximum iterations reached.", "Error")
     return None
+
+
+async def run_initial_setup(config: Config, ui: UI) -> None:
+    """Run interactive onboarding for first-time users."""
+    ui.show_onboarding_welcome()
+    
+    # 1. Select Provider
+    providers = ProviderRegistry.list_providers()
+    selected_provider = ui.prompt_provider_selection(providers)
+    
+    # 2. Get API Key if needed
+    api_key = ""
+    selected_model = None
+    if selected_provider != "ollama":
+        api_key = ui.prompt_api_key(selected_provider)
+    else:
+        # Try to list models for Ollama
+        try:
+            from git_summarize.providers import ProviderRegistry
+            provider_cls = ProviderRegistry.get("ollama")
+            # Create a temporary provider instance to list models
+            # We use config for host settings if available
+            provider_inst = provider_cls(host=config.get_ollama_host())
+            
+            with ui.show_spinner("Fetching local Ollama models..."):
+                models = await provider_inst.list_models()
+            
+            if models:
+                selected_model = ui.prompt_ollama_model_selection(models)
+            else:
+                ui.show_warning("No local Ollama models found. Using default: llama2")
+        except Exception as e:
+            ui.show_warning(f"Could not connect to Ollama server: {e}")
+
+    # 3. Save Configuration
+    with ui.show_spinner("Saving configuration..."):
+        config.save_to_env(selected_provider, api_key, model=selected_model)
+    
+    ui.show_setup_success(selected_provider)
+    
+    # Ask if they want to run the tool now if there are changes
+    if typer.confirm("\nWould you like to run gcms on your current changes now?", default=True):
+        # Refresh config with new values
+        new_config = get_config()
+        new_config.push = True
+        await run_generation_flow(new_config, ui)
 
 
 async def handle_push(git: GitOps, ui: UI, current_branch: str) -> int:

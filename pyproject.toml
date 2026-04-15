@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "git-summarize"
+name = "gcm"
 version = "1.1.0"
 description = "AI-powered Git commit message generator using conventional commits"
 readme = "README.md"
@@ -48,7 +48,7 @@ dev = [
 ]
 
 [project.scripts]
-gcm = "git_summarize.main:app"
+gcms = "git_summarize.main:app"
 git-summarize = "git_summarize.main:app"
 
 [project.urls]

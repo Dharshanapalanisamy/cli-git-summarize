@@ -10,6 +10,7 @@ from typing import Optional
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from dotenv import set_key
 
 
 class ProviderSettings(BaseSettings):
@@ -116,6 +117,10 @@ class Config(BaseSettings):
         default=False,
         description="Push after commit (with branch selection)",
     )
+    no_add: bool = Field(
+        default=False,
+        description="Skip git add (only stage specific files)",
+    )
 
     # Provider-specific configurations
     ollama: OllamaSettings = Field(default_factory=OllamaSettings)
@@ -165,6 +170,43 @@ class Config(BaseSettings):
         """Get Ollama host URL."""
         return self.ollama_host or self.ollama.host or "http://localhost:11434"
 
+    def is_configured(self) -> bool:
+        """Check if the current provider is properly configured with an API key."""
+        if self.provider == "ollama":
+            return True
+        return bool(self.get_api_key(self.provider))
+
+    def save_to_env(self, provider: str, api_key: str, model: Optional[str] = None) -> None:
+        """Save configuration to the .env file in the current directory."""
+        env_path = self.get_env_path()
+
+        # Update or create the .env file
+        set_key(str(env_path), "GCM_PROVIDER", provider)
+        if provider == "claude":
+            set_key(str(env_path), "GCM_ANTHROPIC_API_KEY", api_key)
+        elif provider == "openai":
+            set_key(str(env_path), "GCM_OPENAI_API_KEY", api_key)
+        elif provider == "gemini":
+            set_key(str(env_path), "GCM_GEMINI_API_KEY", api_key)
+
+        if model:
+            set_key(str(env_path), "GCM_MODEL", model)
+
+    @classmethod
+    def get_env_path(cls) -> Path:
+        """Get the path to the .env file."""
+        env_file = Path(".env")
+        if not env_file.exists():
+            # Try package directory
+            package_dir = Path(__file__).parent.parent.parent
+            env_file = package_dir / ".env"
+        
+        # If still doesn't exist, use current directory
+        if not env_file.exists():
+            env_file = Path(".env")
+            
+        return env_file
+
     @classmethod
     def load(cls) -> "Config":
         """
@@ -172,14 +214,7 @@ class Config(BaseSettings):
 
         Config file location: ~/.git-summarize/config.toml
         """
-        config_file = Path.home() / ".git-summarize" / "config.toml"
-
-        # Look for .env in current directory and package directory
-        env_file = Path(".env")
-        if not env_file.exists():
-            # Try package directory
-            package_dir = Path(__file__).parent.parent.parent
-            env_file = package_dir / ".env"
+        env_file = cls.get_env_path()
 
         if env_file.exists():
             return cls(_env_file=str(env_file), _env_file_encoding="utf-8")

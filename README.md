@@ -44,7 +44,7 @@ pip install -e .
 
 2. **Generate a commit message:**
    ```bash
-   gcm generate
+   gcms generate
    ```
 
 3. **Select or edit** the suggested commit message
@@ -56,7 +56,7 @@ pip install -e .
 Stage, commit, and push automatically:
 
 ```bash
-gcm generate --apply --push
+gcms generate --apply --push
 ```
 
 ## 🤖 AI Providers

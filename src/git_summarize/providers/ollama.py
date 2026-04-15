@@ -49,7 +49,7 @@ class OllamaProvider(AIProvider):
 
     @property
     def default_model(self) -> str:
-        return "llama2"
+        return "llama3.2"
 
     @property
     def requires_api_key(self) -> bool:
@@ -104,20 +104,27 @@ class OllamaProvider(AIProvider):
             )
 
     async def check_availability(self) -> bool:
-        """Check if Ollama server is available."""
+        """Check if Ollama server is available and reachable."""
         try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                # Check if server is running
-                response = await client.get(f"{self.host}/api/tags")
-                if response.status_code != 200:
-                    return False
+            # We try both the configured host and 127.0.0.1 as a fallback
+            hosts_to_try = [self.host]
+            if "localhost" in self.host:
+                hosts_to_try.append(self.host.replace("localhost", "127.0.0.1"))
+            elif "127.0.0.1" in self.host:
+                hosts_to_try.append(self.host.replace("127.0.0.1", "localhost"))
 
-                # Check if model is available
-                data = response.json()
-                models = [m.get("name", "").split(":")[0] for m in data.get("models", [])]
-                return self.model in models or any(
-                    self.model in m for m in models
-                )
+            for host in hosts_to_try:
+                try:
+                    async with httpx.AsyncClient(timeout=3.0) as client:
+                        response = await client.get(f"{host}/api/tags")
+                        if response.status_code == 200:
+                            # Update self.host if we found a better one
+                            self.host = host
+                            return True
+                except (httpx.ConnectError, httpx.TimeoutException):
+                    continue
+            
+            return False
 
         except Exception:
             return False
