@@ -65,6 +65,8 @@ Your task is to analyze Git diffs and generate commit messages that follow the C
 Generate exactly {num_suggestions} commit message suggestions.
 Each suggestion should be separated by "---" on its own line.
 
+Note: The Git diff provided may be minimized (no context lines) or truncated to save tokens. Focus on the explicit changes shown (+/- lines) and use the summary information provided.
+
 Example output:
 ```
 feat(auth): add OAuth2 authentication support

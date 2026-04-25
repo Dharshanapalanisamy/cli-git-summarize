@@ -31,7 +31,7 @@ class GeminiProvider(AIProvider):
 
     @property
     def default_model(self) -> str:
-        return "gemini-1.5-flash"
+        return "gemini-2.5-flash"
 
     @property
     def requires_api_key(self) -> bool:
@@ -40,7 +40,7 @@ class GeminiProvider(AIProvider):
     async def generate(self, request: GenerationRequest) -> GenerationResponse:
         """Generate text using Gemini."""
         try:
-            genai = self._get_client()
+            client = self._get_client()
 
             # Build the full prompt with optional system prompt
             full_prompt = request.prompt
@@ -50,7 +50,7 @@ class GeminiProvider(AIProvider):
             # Use asyncio.to_thread to run synchronous API in async context
             response = await asyncio.to_thread(
                 self._generate_with_gemini,
-                genai,
+                client,
                 full_prompt,
                 request.max_tokens,
                 request.temperature,
@@ -79,19 +79,20 @@ class GeminiProvider(AIProvider):
                 original_error=e,
             )
 
-    def _generate_with_gemini(self, genai, prompt: str, max_tokens: int, temperature: float):
+    def _generate_with_gemini(self, client, prompt: str, max_tokens: int, temperature: float):
         """Generate text using Gemini SDK (synchronous)."""
-        model = genai.GenerativeModel(self.model)
-
+        from google import genai
+        
         # Configure generation parameters
-        generation_config = genai.types.GenerationConfig(
+        config = genai.types.GenerateContentConfig(
             max_output_tokens=max_tokens,
             temperature=temperature,
         )
 
-        response = model.generate_content(
-            prompt,
-            generation_config=generation_config,
+        response = client.models.generate_content(
+            model=self.model,
+            contents=prompt,
+            config=config,
         )
 
         return response
@@ -102,25 +103,27 @@ class GeminiProvider(AIProvider):
             return False
 
         try:
-            genai = self._get_client()
-            model = genai.GenerativeModel(self.model)
+            client = self._get_client()
+            from google import genai
 
             # Try a minimal request to check connectivity
             await asyncio.to_thread(
-                model.generate_content,
-                ".",
-                generation_config=genai.types.GenerationConfig(
+                client.models.generate_content,
+                model=self.model,
+                contents=".",
+                config=genai.types.GenerateContentConfig(
                     max_output_tokens=1,
                     temperature=0,
                 ),
             )
             return True
-        except Exception:
+        except Exception as e:
+            print(f"\n[DEBUG] Gemini connection failed: {str(e)}")
             return False
 
     def _get_client(self):
-        """Get Google Generative AI client instance."""
-        import google.generativeai as genai
+        """Get Google Gen AI client instance."""
+        from google import genai
 
         if not self.api_key:
             raise ProviderError(
@@ -128,5 +131,4 @@ class GeminiProvider(AIProvider):
                 provider="gemini",
             )
 
-        genai.configure(api_key=self.api_key)
-        return genai
+        return genai.Client(api_key=self.api_key)
