@@ -202,6 +202,7 @@ def config_cmd(
     show: bool = typer.Option(False, "--show", help="Show current config"),
     provider: Optional[str] = typer.Option(None, "--provider", "-p", help="Set default provider"),
     model: Optional[str] = typer.Option(None, "--model", "-m", help="Set default model"),
+    api_key: Optional[str] = typer.Option(None, "--api-key", "-k", help="Set API key for the provider"),
 ) -> int:
     """
     Manage git-summarize configuration.
@@ -233,11 +234,51 @@ def config_cmd(
     # Set configuration values
     if provider:
         config.provider = provider
+        changed = True
         console.print(f"[green]✓ Set default provider: {provider}[/green]")
+        
+        # Use provided key or prompt if needed and missing
+        current_key = api_key or config.get_api_key(provider)
+        
+        if provider != "ollama" and not current_key:
+            ui = UI(console)
+            entered_key = ui.prompt_api_key(provider)
+            if entered_key:
+                current_key = entered_key
+        
+        if current_key:
+            if provider == "claude":
+                config.anthropic_api_key = current_key
+            elif provider == "openai":
+                config.openai_api_key = current_key
+            elif provider == "gemini":
+                config.gemini_api_key = current_key
+    
+    # If api_key provided but no provider specified, apply to current provider
+    elif api_key:
+        provider = config.provider
+        if provider != "ollama":
+            if provider == "claude":
+                config.anthropic_api_key = api_key
+            elif provider == "openai":
+                config.openai_api_key = api_key
+            elif provider == "gemini":
+                config.gemini_api_key = api_key
+            changed = True
+            console.print(f"[green]✓ Set API key for current provider: {provider}[/green]")
 
     if model:
         config.model = model
         console.print(f"[green]✓ Set default model: {model}[/green]")
+
+    if provider or model:
+        # Save to .env
+        config.save_to_env(
+            config.provider, 
+            config.get_api_key(config.provider) or "",
+            model=config.model
+        )
+        console.print("[dim]Configuration saved to .env[/dim]")
 
     if not provider and not model:
         # Show help
@@ -359,7 +400,9 @@ async def run_generation_flow(
         with ui.show_spinner("Reading Git repository..."):
             try:
                 reader = GitReader(repo_path)
-                context = reader.get_context()
+                context = reader.get_context(
+                    context_lines=config.diff_context_lines
+                )
             except GitReaderError as e:
                 ui.show_error(str(e), "Git Error")
                 return 1
@@ -386,6 +429,7 @@ async def run_generation_flow(
         # Step 4: Build prompt
         prompt_builder = PromptBuilder(
             num_suggestions=config.num_suggestions,
+            max_diff_length=config.diff_max_length,
         )
         prompt = prompt_builder.build(context)
 
@@ -585,7 +629,10 @@ async def run_initial_setup(config: Config, ui: UI) -> None:
     
     # 1. Select Provider
     providers = ProviderRegistry.list_providers()
-    selected_provider = ui.prompt_provider_selection(providers)
+    selected_provider = ui.prompt_provider_selection(
+        providers, 
+        default_provider=config.provider
+    )
     
     # 2. Get API Key if needed
     api_key = ""
@@ -595,7 +642,6 @@ async def run_initial_setup(config: Config, ui: UI) -> None:
     else:
         # Try to list models for Ollama
         try:
-            from git_summarize.providers import ProviderRegistry
             provider_cls = ProviderRegistry.get("ollama")
             # Create a temporary provider instance to list models
             # We use config for host settings if available

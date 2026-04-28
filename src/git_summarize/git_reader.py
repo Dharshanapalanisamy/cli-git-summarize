@@ -145,9 +145,9 @@ class GitReader:
         """Get the full staged diff."""
         return self._run_git("diff", "--cached")
 
-    def get_file_diff(self, file_path: str) -> str:
+    def get_file_diff(self, file_path: str, context_lines: int = 3) -> str:
         """Get diff for a specific file."""
-        return self._run_git("diff", "--cached", "--", file_path)
+        return self._run_git("diff", "--cached", f"-U{context_lines}", "--", file_path)
 
     def get_diff_stats(self) -> tuple[int, int, int]:
         """
@@ -215,9 +215,12 @@ class GitReader:
         except GitReaderError:
             return False
 
-    def parse_diffs(self) -> list[GitDiff]:
+    def parse_diffs(self, context_lines: int = 3) -> list[GitDiff]:
         """
         Parse staged changes into structured GitDiff objects.
+
+        Args:
+            context_lines: Number of context lines to include in diff
 
         Returns:
             List of GitDiff objects for each changed file
@@ -240,7 +243,14 @@ class GitReader:
             is_deleted = status.startswith("D")
             is_renamed = status.startswith("R")
 
-            diff_text = self.get_file_diff(file_path if not is_renamed else parts[2])
+            diff_text = self.get_file_diff(
+                file_path if not is_renamed else parts[2],
+                context_lines=context_lines
+            )
+            
+            # Truncate extremely large individual file diffs
+            if len(diff_text) > 8000:
+                diff_text = diff_text[:8000] + "\n\n[... file diff truncated ...]"
 
             diffs.append(
                 GitDiff(
@@ -256,18 +266,23 @@ class GitReader:
 
         return diffs
 
-    def get_context(self, include_recent_commits: int = 5) -> GitContext:
+    def get_context(
+        self, 
+        include_recent_commits: int = 5,
+        context_lines: int = 3
+    ) -> GitContext:
         """
         Get complete Git context for commit message generation.
 
         Args:
             include_recent_commits: Number of recent commits to include
+            context_lines: Number of context lines to include in diffs
 
         Returns:
             GitContext with all repository information
         """
         staged_files = self.get_staged_files()
-        diffs = self.parse_diffs()
+        diffs = self.parse_diffs(context_lines=context_lines)
         files_changed, insertions, deletions = self.get_diff_stats()
 
         # Create a summary of changes

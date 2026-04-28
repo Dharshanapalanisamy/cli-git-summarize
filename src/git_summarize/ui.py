@@ -487,12 +487,13 @@ class UI:
         ))
         self.console.print()
 
-    def prompt_provider_selection(self, providers: list[str]) -> str:
+    def prompt_provider_selection(self, providers: list[str], default_provider: Optional[str] = None) -> str:
         """
         Prompt user to select an AI provider.
 
         Args:
             providers: List of available provider names
+            default_provider: Optional provider to set as default
 
         Returns:
             Selected provider name
@@ -511,9 +512,12 @@ class UI:
             "ollama": "Local AI (No API key needed)",
         }
 
+        default_index = "1"
         for i, provider in enumerate(providers, 1):
             desc = descriptions.get(provider, "")
             table.add_row(f"[{i}]", provider.title(), desc)
+            if default_provider and provider == default_provider:
+                default_index = str(i)
 
         self.console.print(table)
         self.console.print()
@@ -522,7 +526,7 @@ class UI:
         choice = Prompt.ask(
             "Enter choice",
             choices=options,
-            default="1",
+            default=default_index,
             show_choices=False,
         )
 
@@ -543,7 +547,7 @@ class UI:
         if provider == "gemini":
             self.console.print("[dim]Get a free key at: https://aistudio.google.com/app/apikey[/dim]")
         
-        return Prompt.ask("API Key", password=True)
+        return Prompt.ask("API Key", password=False)
 
     def prompt_ollama_model_selection(self, models: list[str]) -> str:
         """

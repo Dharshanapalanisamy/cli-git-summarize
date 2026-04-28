@@ -122,6 +122,20 @@ class Config(BaseSettings):
         description="Skip git add (only stage specific files)",
     )
 
+    # Performance and token usage settings
+    diff_context_lines: int = Field(
+        default=0,
+        ge=0,
+        le=10,
+        description="Number of context lines to include in Git diffs (0 for minimal)",
+    )
+    diff_max_length: int = Field(
+        default=10000,
+        ge=500,
+        le=100000,
+        description="Maximum characters for the combined diff text",
+    )
+
     # Provider-specific configurations
     ollama: OllamaSettings = Field(default_factory=OllamaSettings)
     claude: ClaudeSettings = Field(default_factory=ClaudeSettings)
@@ -217,6 +231,7 @@ class Config(BaseSettings):
         env_file = cls.get_env_path()
 
         if env_file.exists():
+            print(f"Loading config from {env_file}")
             return cls(_env_file=str(env_file), _env_file_encoding="utf-8")
 
         return cls()
